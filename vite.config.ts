@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-// Configuración limpia de Vite sin dependencias de backend inexistentes
 export default defineConfig({
   plugins: [react()],
-});
+  base: '/reportes-Aws/', // Reemplaza con el nombre exacto de tu repositorio
+})
