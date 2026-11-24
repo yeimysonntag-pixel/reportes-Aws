@@ -1,8 +1,9 @@
-import React, { useState, useMemo, ChangeEvent } from 'react';
+import React, { useState, useMemo, useEffect, ChangeEvent } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer, Legend, BarChart, Bar, PieChart, Pie, Cell 
 } from 'recharts';
+import portadaTivitImg from './assets/portada-tivit.png';
 
 const TIVIT_RED = '#CC0000';
 
@@ -26,7 +27,6 @@ const COL_DISPLAY_LABELS: Record<string, string> = {
   'Cuenta_Mapeada': '🏷️ Cuenta / Cliente Mapeado',
 };
 
-// NOMBRES DE ENCABEZADOS AL EXPORTAR (EXCEL .XLSM Y CSV)
 const EXPORT_HEADER_LABELS: Record<string, string> = {
   'line_item_usage_account_id': 'Account ID',
   'line_item_usage_account_name': 'Account Name',
@@ -34,14 +34,13 @@ const EXPORT_HEADER_LABELS: Record<string, string> = {
   'Costo_Final_Ajustado': 'Total',
 };
 
-// COLUMNAS DE ID QUE DEBEN EXPORTARSE COMO NÚMERO ENTERO EN EXCEL
 const NUMERIC_ID_COLS = new Set<string>([
   'line_item_usage_account_id',
   'bill_payer_account_id',
 ]);
 
 // ============================================================================
-// GENERADOR BINARIO ZIP NATIVO PARA LIBRO DE EXCEL HABILITADO PARA MACROS (.XLSM)
+// GENERADOR BINARIO ZIP NATIVO (.XLSM Y .DOCX)
 // ============================================================================
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -63,18 +62,14 @@ function crc32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function buildZipArchive(files: { path: string; content: string }[]): Uint8Array {
+function buildBinaryZip(files: { path: string; data: Uint8Array }[]): Uint8Array {
   const encoder = new TextEncoder();
-  const fileEntries = files.map(f => {
-    const nameBytes = encoder.encode(f.path);
-    const dataBytes = encoder.encode(f.content);
-    return {
-      nameBytes,
-      dataBytes,
-      crc: crc32(dataBytes),
-      offset: 0,
-    };
-  });
+  const fileEntries = files.map(f => ({
+    nameBytes: encoder.encode(f.path),
+    dataBytes: f.data,
+    crc: crc32(f.data),
+    offset: 0,
+  }));
 
   const chunks: Uint8Array[] = [];
   let offset = 0;
@@ -151,6 +146,11 @@ function buildZipArchive(files: { path: string; content: string }[]): Uint8Array
   return output;
 }
 
+function buildZipArchive(files: { path: string; content: string }[]): Uint8Array {
+  const encoder = new TextEncoder();
+  return buildBinaryZip(files.map(f => ({ path: f.path, data: encoder.encode(f.content) })));
+}
+
 function colIndexToLetter(colIdx1Based: number): string {
   let temp = colIdx1Based;
   let letter = '';
@@ -160,6 +160,651 @@ function colIndexToLetter(colIdx1Based: number): string {
     temp = Math.floor((temp - 1) / 26);
   }
   return letter;
+}
+
+// ============================================================================
+// RENDERIZADOR DE PORTADA CORPORATIVA TIVIT EN ULTRA HD (300 DPI: 2480x3508 px)
+// ============================================================================
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = (err) => reject(err);
+    img.src = src;
+  });
+}
+
+async function renderHighResCoverDataUrl(opts: {
+  clienteNombre: string;
+  mesConsumo: string;
+  periodoInicio: string;
+  periodoFin: string;
+  customCoverDataUrl?: string | null;
+}): Promise<string> {
+  const WIDTH = 2480;
+  const HEIGHT = 3508;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  let baseImg: HTMLImageElement | null = null;
+
+  if (opts.customCoverDataUrl) {
+    try {
+      baseImg = await loadImageElement(opts.customCoverDataUrl);
+    } catch {
+      baseImg = null;
+    }
+  }
+
+  if (!baseImg) {
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    const candidates = [
+      portadaTivitImg,
+      `${baseUrl}portada-tivit.png`,
+      `${baseUrl}portadativit.png`,
+      `${baseUrl}portada-tivit.jpg`,
+    ];
+    for (const url of candidates) {
+      try {
+        baseImg = await loadImageElement(url);
+        break;
+      } catch {
+        // Continúa al siguiente candidato
+      }
+    }
+  }
+
+  if (baseImg) {
+    ctx.drawImage(baseImg, 0, 0, WIDTH, HEIGHT);
+  } else {
+    // Diseño vectorial HD corporativo TIVIT de respaldo
+    ctx.fillStyle = '#CC0000';
+    ctx.fillRect(0, 0, WIDTH, 26);
+
+    ctx.beginPath();
+    ctx.moveTo(0, 26);
+    ctx.lineTo(395, 26);
+    ctx.lineTo(1835, 1465);
+    ctx.lineTo(2480, 820);
+    ctx.lineTo(2480, 1345);
+    ctx.lineTo(1835, 1990);
+    ctx.lineTo(0, 440);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 165px Arial, sans-serif';
+    ctx.fillText('TIVIT', 1380, 1520);
+
+    ctx.fillStyle = '#4A4A4A';
+    ctx.font = 'bold 46px Arial, sans-serif';
+    ctx.fillText('TIVIT', 248, 2765);
+
+    ctx.font = 'bold 42px Arial, sans-serif';
+    ctx.fillText('Av. Los Jardines 927. Ciudad Empresarial', 248, 2850);
+    ctx.fillText('Huechuraba, Santiago,', 248, 2912);
+    ctx.fillText('Fono: + 56 (2) 2397-6700', 248, 2974);
+    ctx.fillText('www.tivit.com', 248, 3036);
+
+    ctx.fillStyle = '#CC0000';
+    ctx.fillRect(1870, 2505, 225, 12);
+
+    ctx.fillStyle = '#8C969E';
+    ctx.font = '106px Arial, sans-serif';
+    ctx.fillText('Su', 1870, 2685);
+    ctx.fillText('futuro,', 1870, 2805);
+    ctx.fillText('nuestro', 1870, 2925);
+    ctx.fillText('desafío', 1870, 3045);
+  }
+
+  // Datos dinámicos del informe en el área blanca izquierda (sin pisar logo ni textos)
+  const leftX = 248;
+  ctx.fillStyle = '#CC0000';
+  ctx.fillRect(leftX, 1870, 180, 14);
+
+  ctx.fillStyle = '#0F172A';
+  ctx.font = 'bold 74px Arial, sans-serif';
+  ctx.fillText('INFORME DE CONSUMO', leftX, 1975);
+  ctx.fillText('CLOUD AWS', leftX, 2060);
+
+  ctx.fillStyle = '#334155';
+  ctx.font = 'bold 52px Arial, sans-serif';
+  const clienteText = `Cliente: ${opts.clienteNombre || 'Cliente AWS'}`;
+  ctx.fillText(clienteText.slice(0, 36), leftX, 2170);
+
+  ctx.fillStyle = '#475569';
+  ctx.font = '44px Arial, sans-serif';
+  ctx.fillText(`Mes de Consumo: ${(opts.mesConsumo || '').toUpperCase()}`, leftX, 2245);
+
+  const periodoStr = opts.periodoFin
+    ? `Período: ${opts.periodoInicio} al ${opts.periodoFin}`
+    : `Inicio Período: ${opts.periodoInicio}`;
+  ctx.fillText(periodoStr, leftX, 2315);
+
+  return canvas.toDataURL('image/png', 1.0);
+}
+
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const base64 = dataUrl.split(',')[1] || '';
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function generateTopDriversChartPng(
+  topDrivers: { name: string; cost: number; pct: number }[]
+): Uint8Array {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600;
+  canvas.height = 640;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = '#CBD5E1';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+
+  ctx.fillStyle = '#1E293B';
+  ctx.font = 'bold 30px Arial';
+  ctx.fillText('DISTRIBUCIÓN TOP 5 SERVICIOS AWS DE MAYOR CONSUMO (USD)', 44, 62);
+
+  const colors = ['#CC0000', '#1E293B', '#2563EB', '#059669', '#D97706'];
+  const maxCost = topDrivers.length > 0 ? Math.max(...topDrivers.map(d => d.cost), 0.01) : 1;
+
+  topDrivers.slice(0, 5).forEach((d, idx) => {
+    const y = 125 + idx * 96;
+    const barMaxW = 780;
+    const barW = Math.max(16, Math.round((d.cost / maxCost) * barMaxW));
+
+    ctx.fillStyle = '#0F172A';
+    ctx.font = 'bold 25px Arial';
+    const label = `${idx + 1}. ${d.name.length > 26 ? d.name.slice(0, 26) + '...' : d.name}`;
+    ctx.fillText(label, 44, y + 34);
+
+    ctx.fillStyle = '#E2E8F0';
+    ctx.fillRect(490, y, barMaxW, 44);
+
+    ctx.fillStyle = colors[idx % colors.length];
+    ctx.fillRect(490, y, barW, 44);
+
+    ctx.fillStyle = '#1E293B';
+    ctx.font = 'bold 24px Arial';
+    ctx.fillText(
+      `$${d.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${d.pct}%)`,
+      1295,
+      y + 32
+    );
+  });
+
+  return dataUrlToBytes(canvas.toDataURL('image/png', 1.0));
+}
+
+async function generateAndDownloadWordReport(payload: {
+  clienteNombre: string;
+  clienteRut: string;
+  codCliente: string;
+  accountManager: string;
+  sdm: string;
+  tipoCambio: number;
+  fechaTC: string;
+  periodoInicio: string;
+  periodoFin: string;
+  fechaInforme: string;
+  mesConsumo: string;
+  totalUSD: number;
+  totalCLP: number;
+  ivaUSD: number;
+  ivaCLP: number;
+  totalConIvaUSD: number;
+  totalConIvaCLP: number;
+  marketplaceSum: number;
+  selectedAccountsCount: number;
+  totalServicesUsed: number;
+  effiencyScore: number;
+  tablaClientes: { name: string; cost: number }[];
+  tablaServiciosProductos: { service: string; product: string; cost: number }[];
+  topDrivers: { name: string; cost: number; pct: number; count: number; sampleDesc: string }[];
+  customCoverDataUrl?: string | null;
+  consoleScreenshotDataUrl?: string | null;
+}): Promise<void> {
+  const encoder = new TextEncoder();
+
+  const hdCoverDataUrl = await renderHighResCoverDataUrl({
+    clienteNombre: payload.clienteNombre,
+    mesConsumo: payload.mesConsumo,
+    periodoInicio: payload.periodoInicio,
+    periodoFin: payload.periodoFin,
+    customCoverDataUrl: payload.customCoverDataUrl,
+  });
+  const coverBytes = dataUrlToBytes(hdCoverDataUrl);
+  const chartBytes = generateTopDriversChartPng(payload.topDrivers);
+
+  const hasEvidence = Boolean(payload.consoleScreenshotDataUrl);
+  const evidenceBytes = payload.consoleScreenshotDataUrl
+    ? dataUrlToBytes(payload.consoleScreenshotDataUrl)
+    : null;
+
+  const esc = (unsafe: any) =>
+    String(unsafe ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
+  const p = (
+    text: string,
+    opts?: {
+      bold?: boolean;
+      size?: number;
+      color?: string;
+      align?: 'left' | 'center' | 'right' | 'both';
+      spaceBefore?: number;
+      spaceAfter?: number;
+    }
+  ) => {
+    const sz = (opts?.size ?? 10.5) * 2;
+    const color = opts?.color ?? '1E293B';
+    const alignXml = opts?.align ? `<w:jc w:val="${opts.align}"/>` : '';
+    const spacingXml = `<w:spacing w:before="${opts?.spaceBefore ?? 60}" w:after="${opts?.spaceAfter ?? 80}" w:line="260" w:lineRule="auto"/>`;
+    const boldXml = opts?.bold ? '<w:b/>' : '';
+
+    return `<w:p>
+      <w:pPr>${alignXml}${spacingXml}</w:pPr>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>${boldXml}<w:color w:val="${color}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>
+        <w:t xml:space="preserve">${esc(text)}</w:t>
+      </w:r>
+    </w:p>`;
+  };
+
+  const sectionTitle = (title: string) => `
+    <w:p>
+      <w:pPr>
+        <w:spacing w:before="180" w:after="100"/>
+        <w:pBdr><w:bottom w:val="single" w:sz="12" w:space="4" w:color="CC0000"/></w:pBdr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:color w:val="CC0000"/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr>
+        <w:t xml:space="preserve">${esc(title)}</w:t>
+      </w:r>
+    </w:p>`;
+
+  const pageBreak = () => `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+
+  const tc = (
+    text: string,
+    opts?: {
+      widthDxa?: number;
+      fill?: string;
+      color?: string;
+      bold?: boolean;
+      align?: 'left' | 'center' | 'right';
+      gridSpan?: number;
+      size?: number;
+    }
+  ) => {
+    const wXml = opts?.widthDxa ? `<w:tcW w:w="${opts.widthDxa}" w:type="dxa"/>` : '';
+    const spanXml = opts?.gridSpan ? `<w:gridSpan w:val="${opts.gridSpan}"/>` : '';
+    const fillXml = opts?.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${opts.fill}"/>` : '';
+    const alignXml = opts?.align ? `<w:jc w:val="${opts.align}"/>` : '';
+    const boldXml = opts?.bold ? '<w:b/>' : '';
+    const color = opts?.color ?? '0F172A';
+    const sz = (opts?.size ?? 10) * 2;
+
+    return `<w:tc>
+      <w:tcPr>
+        ${wXml}${spanXml}${fillXml}
+        <w:vAlign w:val="center"/>
+        <w:tcMar>
+          <w:top w:w="90" w:type="dxa"/>
+          <w:bottom w:w="90" w:type="dxa"/>
+          <w:left w:w="130" w:type="dxa"/>
+          <w:right w:w="130" w:type="dxa"/>
+        </w:tcMar>
+      </w:tcPr>
+      <w:p>
+        <w:pPr>${alignXml}<w:spacing w:before="0" w:after="0"/></w:pPr>
+        <w:r>
+          <w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>${boldXml}<w:color w:val="${color}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>
+          <w:t xml:space="preserve">${esc(text)}</w:t>
+        </w:r>
+      </w:p>
+    </w:tc>`;
+  };
+
+  const drawingBlock = (
+    rId: string,
+    cxEmu: number,
+    cyEmu: number,
+    docPrId: number,
+    name: string,
+    fullPageFloating = false
+  ) => {
+    if (fullPageFloating) {
+      return `<w:p>
+        <w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr>
+        <w:r>
+          <w:drawing>
+            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="1" locked="1" layoutInCell="1" allowOverlap="1"
+              xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+              <wp:simplePos x="0" y="0"/>
+              <wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH>
+              <wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV>
+              <wp:extent cx="7560000" cy="10692000"/>
+              <wp:effectExtent l="0" t="0" r="0" b="0"/>
+              <wp:wrapNone/>
+              <wp:docPr id="${docPrId}" name="${esc(name)}"/>
+              <wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>
+              <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:nvPicPr>
+                      <pic:cNvPr id="${docPrId}" name="${esc(name)}"/>
+                      <pic:cNvPicPr/>
+                    </pic:nvPicPr>
+                    <pic:blipFill>
+                      <a:blip r:embed="${rId}"/>
+                      <a:stretch><a:fillRect/></a:stretch>
+                    </pic:blipFill>
+                    <pic:spPr>
+                      <a:xfrm><a:off x="0" y="0"/><a:ext cx="7560000" cy="10692000"/></a:xfrm>
+                      <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                    </pic:spPr>
+                  </pic:pic>
+                </a:graphicData>
+              </a:graphic>
+            </wp:anchor>
+          </w:drawing>
+        </w:r>
+      </w:p>`;
+    }
+
+    return `<w:p>
+      <w:pPr><w:jc w:val="center"/><w:spacing w:before="100" w:after="120"/></w:pPr>
+      <w:r>
+        <w:drawing>
+          <wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+            <wp:extent cx="${cxEmu}" cy="${cyEmu}"/>
+            <wp:docPr id="${docPrId}" name="${esc(name)}"/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="${docPrId}" name="${esc(name)}"/>
+                    <pic:cNvPicPr/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="${rId}"/>
+                    <a:stretch><a:fillRect/></a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm><a:off x="0" y="0"/><a:ext cx="${cxEmu}" cy="${cyEmu}"/></a:xfrm>
+                    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+    </w:p>`;
+  };
+
+  const tableBordersXml = `
+    <w:tblBorders>
+      <w:top w:val="single" w:sz="8" w:space="0" w:color="1E293B"/>
+      <w:bottom w:val="single" w:sz="8" w:space="0" w:color="1E293B"/>
+      <w:left w:val="single" w:sz="6" w:space="0" w:color="CBD5E1"/>
+      <w:right w:val="single" w:sz="6" w:space="0" w:color="CBD5E1"/>
+      <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CBD5E1"/>
+      <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CBD5E1"/>
+    </w:tblBorders>`;
+
+  const fmtUsd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtClp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+
+  let bodyXml = '';
+  bodyXml += drawingBlock('rId1', 7560000, 10692000, 1, 'Portada_TIVIT_HD', true);
+  bodyXml += pageBreak();
+
+  bodyXml += sectionTitle('1. Resumen Ejecutivo');
+  bodyXml += p(
+    'Este informe consolida el consumo de servicios en la nube AWS correspondiente al período facturado.',
+    { size: 10, color: '475569' }
+  );
+
+  bodyXml += `<w:tbl>
+    <w:tblPr><w:tblW w:w="9600" w:type="dxa"/>${tableBordersXml}</w:tblPr>
+    <w:tr>${tc('INFORME DE CONSUMO — TIVIT CLOUD SERVICES', { gridSpan: 4, fill: 'CC0000', color: 'FFFFFF', bold: true, align: 'center', size: 12 })}</w:tr>
+    <w:tr>
+      ${tc('Nombre Cliente', { widthDxa: 2400, fill: 'E2E8F0', bold: true })}
+      ${tc(payload.clienteNombre, { widthDxa: 2400, bold: true, align: 'center' })}
+      ${tc('Período Evaluado', { widthDxa: 2400, fill: 'E2E8F0', bold: true })}
+      ${tc(`${payload.periodoInicio} al ${payload.periodoFin}`, { widthDxa: 2400, bold: true, align: 'center' })}
+    </w:tr>
+    <w:tr>
+      ${tc('RUT Cliente', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.clienteRut, { align: 'center' })}
+      ${tc('Mes de Consumo', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.mesConsumo.toUpperCase(), { bold: true, align: 'center' })}
+    </w:tr>
+    <w:tr>
+      ${tc('Código Cliente', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.codCliente, { align: 'center' })}
+      ${tc('Fecha Informe', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.fechaInforme || new Date().toLocaleDateString('es-CL'), { align: 'center' })}
+    </w:tr>
+    <w:tr>
+      ${tc('Account Manager', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.accountManager, { align: 'center' })}
+      ${tc('Valor Dólar (TC)', { fill: 'E2E8F0', bold: true })}
+      ${tc(`$${payload.tipoCambio.toFixed(2)} CLP`, { fill: 'FEF08A', color: '1D4ED8', bold: true, align: 'center' })}
+    </w:tr>
+    <w:tr>
+      ${tc('Service Delivery Manager', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.sdm, { align: 'center' })}
+      ${tc('Fecha Tipo de Cambio', { fill: 'E2E8F0', bold: true })}
+      ${tc(payload.fechaTC, { align: 'center' })}
+    </w:tr>
+  </w:tbl>`;
+
+  bodyXml += p('', { spaceBefore: 80, spaceAfter: 40 });
+
+  bodyXml += `<w:tbl>
+    <w:tblPr><w:tblW w:w="9600" w:type="dxa"/>${tableBordersXml}</w:tblPr>
+    <w:tr>${tc('RESUMEN DE FACTURACIÓN DEL PERÍODO', { gridSpan: 4, fill: '1E293B', color: 'FFFFFF', bold: true, align: 'center', size: 11 })}</w:tr>
+    <w:tr>
+      ${tc('Concepto / Cliente', { widthDxa: 4200, fill: 'F1F5F9', bold: true })}
+      ${tc('Monto USD', { widthDxa: 1800, fill: 'F1F5F9', bold: true, align: 'right' })}
+      ${tc('Tipo Cambio', { widthDxa: 1600, fill: 'F1F5F9', bold: true, align: 'center' })}
+      ${tc('Monto CLP', { widthDxa: 2000, fill: 'F1F5F9', bold: true, align: 'right' })}
+    </w:tr>
+    <w:tr>
+      ${tc(`Consumo Servicios AWS — ${payload.clienteNombre}`, { bold: true })}
+      ${tc(fmtUsd(payload.totalUSD), { bold: true, align: 'right' })}
+      ${tc(payload.tipoCambio.toFixed(2), { color: 'CC0000', bold: true, align: 'center' })}
+      ${tc(fmtClp(payload.totalCLP), { bold: true, align: 'right' })}
+    </w:tr>
+    <w:tr>
+      ${tc('TOTAL NETO', { fill: 'F8FAFC', bold: true, align: 'right' })}
+      ${tc(fmtUsd(payload.totalUSD), { fill: 'F8FAFC', color: '1D4ED8', bold: true, align: 'right' })}
+      ${tc('-', { fill: 'F8FAFC', align: 'center' })}
+      ${tc(fmtClp(payload.totalCLP), { fill: 'F8FAFC', bold: true, align: 'right' })}
+    </w:tr>
+    <w:tr>
+      ${tc('IVA (19%)', { bold: true, align: 'right' })}
+      ${tc(fmtUsd(payload.ivaUSD), { color: '1D4ED8', bold: true, align: 'right' })}
+      ${tc('-', { align: 'center' })}
+      ${tc(fmtClp(payload.ivaCLP), { bold: true, align: 'right' })}
+    </w:tr>
+    <w:tr>
+      ${tc('TOTAL IVA INCLUIDO', { fill: 'FEE2E2', color: '991B1B', bold: true, align: 'right', size: 11 })}
+      ${tc(fmtUsd(payload.totalConIvaUSD), { fill: 'FEE2E2', color: '991B1B', bold: true, align: 'right', size: 11 })}
+      ${tc('-', { fill: 'FEE2E2', align: 'center' })}
+      ${tc(fmtClp(payload.totalConIvaCLP), { fill: 'FEE2E2', color: '991B1B', bold: true, align: 'right', size: 11 })}
+    </w:tr>
+  </w:tbl>`;
+
+  bodyXml += p('', { spaceBefore: 100, spaceAfter: 40 });
+
+  bodyXml += `<w:tbl>
+    <w:tblPr><w:tblW w:w="9600" w:type="dxa"/>${tableBordersXml}</w:tblPr>
+    <w:tr>${tc('FIRMA DE ACEPTACIÓN DEL CLIENTE', { gridSpan: 2, fill: 'CC0000', color: 'FFFFFF', bold: true, align: 'left' })}</w:tr>
+    <w:tr>
+      ${tc('Nombre y Cargo Responsable:\n\n________________________________________', { widthDxa: 4800 })}
+      ${tc('Firma y Timbre:\n\n________________________________________', { widthDxa: 4800 })}
+    </w:tr>
+  </w:tbl>`;
+
+  bodyXml += pageBreak();
+
+  bodyXml += sectionTitle('2. ANÁLISIS EJECUTIVO DE CONSUMO');
+  bodyXml += p(
+    `Durante el período ${payload.periodoInicio} al ${payload.periodoFin} (${payload.mesConsumo}), la infraestructura cloud AWS de ${payload.clienteNombre} registró un gasto neto total de ${fmtUsd(payload.totalUSD)} USD (${fmtClp(payload.totalCLP)} CLP), distribuido en ${payload.selectedAccountsCount} cuenta(s) activa(s) y ${payload.totalServicesUsed} servicios tecnológicos. El consumo asociado a AWS Marketplace ascendió a ${fmtUsd(payload.marketplaceSum)} USD, alcanzando un índice de eficiencia operativa de ${payload.effiencyScore}/100 puntos.`,
+    { align: 'both', size: 10.5 }
+  );
+
+  bodyXml += p('Top 5 Servicios Impulsores de Costo (Explicación Detallada):', { bold: true, size: 11, color: '0F172A', spaceBefore: 120 });
+  if (payload.topDrivers.length > 0) {
+    payload.topDrivers.forEach((driver, idx) => {
+      bodyXml += p(
+        `#${idx + 1} ${driver.name}: ${fmtUsd(driver.cost)} USD (${driver.pct}% del total) — Corresponde a ${driver.count.toLocaleString()} registros de uso. Detalle operativo: ${driver.sampleDesc || 'Recursos cloud activos del cliente'}.`,
+        { size: 10, color: '334155', spaceBefore: 40, spaceAfter: 60 }
+      );
+    });
+  } else {
+    bodyXml += p('No se registran servicios con monto superior a $0.00 USD en la selección actual.', { size: 10 });
+  }
+
+  bodyXml += drawingBlock('rId2', 5940000, 2376000, 2, 'Grafico_Top5_Servicios', false);
+  bodyXml += pageBreak();
+
+  bodyXml += sectionTitle('3. DESGLOSE POR CUENTAS VINCULADAS Y SERVICIOS');
+  const accountRowsXml = payload.tablaClientes
+    .map(
+      (acc, idx) => `<w:tr>
+        ${tc(acc.name, { widthDxa: 6800, fill: idx % 2 === 1 ? 'F8FAFC' : 'FFFFFF' })}
+        ${tc(fmtUsd(acc.cost), { widthDxa: 2800, fill: idx % 2 === 1 ? 'F8FAFC' : 'FFFFFF', bold: true, align: 'right' })}
+      </w:tr>`
+    )
+    .join('');
+
+  bodyXml += `<w:tbl>
+    <w:tblPr><w:tblW w:w="9600" w:type="dxa"/>${tableBordersXml}</w:tblPr>
+    <w:tr>
+      ${tc('Cuenta AWS Vinculada / Mapeo Cliente', { widthDxa: 6800, fill: 'CC0000', color: 'FFFFFF', bold: true })}
+      ${tc('Total Consumo (USD)', { widthDxa: 2800, fill: 'CC0000', color: 'FFFFFF', bold: true, align: 'right' })}
+    </w:tr>
+    ${accountRowsXml}
+  </w:tbl>`;
+
+  bodyXml += p('', { spaceBefore: 100, spaceAfter: 40 });
+
+  const prodRowsXml = payload.tablaServiciosProductos
+    .map(
+      (sp, idx) => `<w:tr>
+        ${tc(sp.service, { widthDxa: 2800, fill: idx % 2 === 1 ? 'F8FAFC' : 'FFFFFF', bold: true })}
+        ${tc(sp.product, { widthDxa: 4600, fill: idx % 2 === 1 ? 'F8FAFC' : 'FFFFFF' })}
+        ${tc(fmtUsd(sp.cost), { widthDxa: 2200, fill: idx % 2 === 1 ? 'F8FAFC' : 'FFFFFF', bold: true, align: 'right' })}
+      </w:tr>`
+    )
+    .join('');
+
+  bodyXml += `<w:tbl>
+    <w:tblPr><w:tblW w:w="9600" w:type="dxa"/>${tableBordersXml}</w:tblPr>
+    <w:tr>
+      ${tc('Servicio AWS', { widthDxa: 2800, fill: '1E293B', color: 'FFFFFF', bold: true })}
+      ${tc('Producto / Descripción', { widthDxa: 4600, fill: '1E293B', color: 'FFFFFF', bold: true })}
+      ${tc('Total (USD)', { widthDxa: 2200, fill: '1E293B', color: 'FFFFFF', bold: true, align: 'right' })}
+    </w:tr>
+    ${prodRowsXml}
+  </w:tbl>`;
+
+  if (hasEvidence && evidenceBytes) {
+    bodyXml += pageBreak();
+    bodyXml += sectionTitle('4. EVIDENCIA DE CONSOLA AWS BILLING');
+    bodyXml += p('Captura de respaldo de consola AWS correspondiente al período facturado:', { size: 10, color: '475569' });
+    bodyXml += drawingBlock('rId3', 5940000, 3600000, 3, 'Evidencia_Consola_AWS', false);
+  }
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>
+    ${bodyXml}
+    <w:sectPr>
+      <w:pgSz w:w="11906" w:h="16838"/>
+      <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`;
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+  const rootRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const docRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/cover.png"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/chart.png"/>
+  ${hasEvidence ? '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/evidence.png"/>' : ''}
+</Relationships>`;
+
+  const zipFiles: { path: string; data: Uint8Array }[] = [
+    { path: '[Content_Types].xml', data: encoder.encode(contentTypesXml) },
+    { path: '_rels/.rels', data: encoder.encode(rootRelsXml) },
+    { path: 'word/document.xml', data: encoder.encode(documentXml) },
+    { path: 'word/_rels/document.xml.rels', data: encoder.encode(docRelsXml) },
+    { path: 'word/media/cover.png', data: coverBytes },
+    { path: 'word/media/chart.png', data: chartBytes },
+  ];
+
+  if (hasEvidence && evidenceBytes) {
+    zipFiles.push({ path: 'word/media/evidence.png', data: evidenceBytes });
+  }
+
+  const docxBytes = buildBinaryZip(zipFiles);
+  const blob = new Blob([docxBytes], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+
+  const cleanClient = (payload.clienteNombre || 'Cliente').trim().replace(/\s+/g, '_');
+  const cleanMonth = (payload.mesConsumo || 'Periodo').trim().replace(/\s+/g, '_');
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Informe_Consumo_AWS_${cleanClient}_${cleanMonth}.docx`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 interface RowData {
@@ -198,20 +843,16 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
 
-  // ESTADOS PARA SELECCIÓN Y MAPEO DE CUENTAS DENTRO DE LOS CURS
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [accountMappings, setAccountMappings] = useState<Record<string, string>>({});
   const [accountSearch, setAccountSearch] = useState<string>('');
   const [showAccountMapper, setShowAccountMapper] = useState<boolean>(true);
 
-  // Permite alternar la visibilidad de los resúmenes tabulares en el reporte completo
   const [showResumenesReporte, setShowResumenesReporte] = useState<boolean>(true);
 
-  // CAMPOS DE PROYECCIÓN
   const [monthsToProject, setMonthsToProject] = useState<number>(6);
   const [manualGrowthRate, setManualGrowthRate] = useState<number>(2.5);
 
-  // CAMPOS PARA DATOS DE FACTURA / CLIENTE
   const [clienteNombre, setClienteNombre] = useState<string>('Prueba');
   const [clienteRut, setClienteRut] = useState<string>('76.123.456-7');
   const [codCliente, setCodCliente] = useState<string>('CL-88492');
@@ -224,21 +865,36 @@ export default function App() {
   const [fechaInforme, setFechaInforme] = useState<string>('');
   const [mesConsumo, setMesConsumo] = useState<string>('enero');
 
-  // COLUMNAS ADICIONALES SELECCIONADAS (LAS 6 PRINCIPALES SIEMPRE SE INCLUYEN PRIMERO)
   const [customReportCols, setCustomReportCols] = useState<string[]>([...FIXED_PRIMARY_COLS]);
   const [showColPicker, setShowColPicker] = useState<boolean>(false);
 
-  // CAPTURA DE PANTALLA DE CONSOLA
+  const [customCoverImage, setCustomCoverImage] = useState<string | null>(null);
+  const [hdCoverPreviewUrl, setHdCoverPreviewUrl] = useState<string>('');
+  const [isGeneratingWord, setIsGeneratingWord] = useState<boolean>(false);
   const [consoleScreenshot, setConsoleScreenshot] = useState<string | null>(null);
 
-  // HELPER PARA OBTENER LLAVE ÚNICA DE CUENTA POR FILA
+  useEffect(() => {
+    let active = true;
+    renderHighResCoverDataUrl({
+      clienteNombre,
+      mesConsumo,
+      periodoInicio,
+      periodoFin,
+      customCoverDataUrl: customCoverImage,
+    }).then(url => {
+      if (active) setHdCoverPreviewUrl(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [clienteNombre, mesConsumo, periodoInicio, periodoFin, customCoverImage]);
+
   const getRowAccountKey = (row: RowData): string => {
     const id = String(row['line_item_usage_account_id'] ?? '').trim();
     const name = String(row['line_item_usage_account_name'] ?? '').trim();
     return id || name || 'SIN_CUENTA';
   };
 
-  // CATÁLOGO DE CUENTAS DETECTADAS EN TODOS LOS CURS CARGADOS
   const availableAccounts = useMemo<AccountCatalogItem[]>(() => {
     const map = new Map<string, AccountCatalogItem>();
 
@@ -270,7 +926,6 @@ export default function App() {
     return Array.from(map.values()).sort((a, b) => b.totalCost - a.totalCost);
   }, [dataRows]);
 
-  // FILTRO DEL BUSCADOR DENTRO DEL SELECTOR DE CUENTAS
   const filteredAccountCatalog = useMemo(() => {
     const q = accountSearch.toLowerCase().trim();
     if (!q) return availableAccounts;
@@ -285,14 +940,12 @@ export default function App() {
     });
   }, [availableAccounts, accountSearch, accountMappings]);
 
-  // LISTA FINAL DE COLUMNAS ORDENADA: SIEMPRE LAS 6 PRINCIPALES PRIMERO + EXTRA SELECCIONADAS
   const orderedActiveCols = useMemo(() => {
     const fixedSet = new Set<string>(FIXED_PRIMARY_COLS);
     const extraCols = customReportCols.filter(col => !fixedSet.has(col));
     return [...FIXED_PRIMARY_COLS, ...extraCols];
   }, [customReportCols]);
 
-  // LISTA DE HEADERS DISPONIBLES ORDENADA (INCLUYE Cuenta_Mapeada)
   const allAvailableHeaders = useMemo(() => {
     const merged = new Set<string>([...FIXED_PRIMARY_COLS, 'Cuenta_Mapeada', ...headers]);
     if (loadedFiles.length > 1) {
@@ -301,7 +954,6 @@ export default function App() {
     return Array.from(merged);
   }, [headers, loadedFiles.length]);
 
-  // PROCESAMIENTO SECUENCIAL DE UN ARCHIVO MEDIANTE WORKER
   const processSingleCurFile = (
     file: File,
     fileIndex: number,
@@ -372,7 +1024,6 @@ export default function App() {
     });
   };
 
-  // CARGA DE MÚLTIPLES ARCHIVOS CUR
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
@@ -456,7 +1107,6 @@ export default function App() {
     }
   };
 
-  // LIMPIAR TODOS LOS CURS CARGADOS
   const handleClearAllCurs = () => {
     setDataRows([]);
     setHeaders([]);
@@ -469,7 +1119,6 @@ export default function App() {
     setStatusMessage('Sube uno o más archivos CUR descomprimidos (.csv o .tsv) para comenzar.');
   };
 
-  // HANDLERS DE SELECCIÓN Y MAPEO DE CUENTAS
   const toggleAccountSelection = (accountKey: string) => {
     setSelectedAccounts(prev =>
       prev.includes(accountKey)
@@ -506,6 +1155,17 @@ export default function App() {
     setAccountMappings(nextMap);
   };
 
+  const handleCoverUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCustomCoverImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -532,7 +1192,6 @@ export default function App() {
     setCustomReportCols([...FIXED_PRIMARY_COLS]);
   };
 
-  // FILTRADO DE FILAS: POR CUENTAS SELECCIONADAS + ENRIQUECIMIENTO DE MAPEO + FILTROS DE COLUMNA
   const filteredRows = useMemo(() => {
     if (dataRows.length === 0 || selectedAccounts.length === 0) return [];
 
@@ -578,7 +1237,6 @@ export default function App() {
       });
   }, [dataRows, selectedAccounts, accountMappings, filters, onlyDataWithValues]);
 
-  // FILAS PARA EXPORTACIÓN: EXCLUYE TODAS LAS FILAS CUYO "Total" (Costo_Final_Ajustado) SEA 0.0
   const exportableRows = useMemo(() => {
     return filteredRows.filter(row => {
       const totalVal = Number(row['Costo_Final_Ajustado'] ?? 0);
@@ -590,9 +1248,6 @@ export default function App() {
     return EXPORT_HEADER_LABELS[col] || COL_DISPLAY_LABELS[col] || col;
   };
 
-  // ============================================================================
-  // EXPORTAR COMO LIBRO DE EXCEL HABILITADO PARA MACROS (.XLSM OPENXML NATIVO)
-  // ============================================================================
   const exportToExcel = () => {
     if (exportableRows.length === 0) return;
 
@@ -623,7 +1278,6 @@ export default function App() {
       return (Number(b['Costo_Final_Ajustado']) || 0) - (Number(a['Costo_Final_Ajustado']) || 0);
     });
 
-    // 1. Agrupar consumo por Account Name (de mayor a menor)
     const accountSummaryMap = new Map<string, { accountName: string; accountId: string; totalCost: number }>();
     sortedDetailRows.forEach(row => {
       const rawName = String(row['line_item_usage_account_name'] ?? '').trim() || 'Sin Nombre';
@@ -646,7 +1300,6 @@ export default function App() {
     const totalSumAll = pivotAccountSummary.reduce((acc, item) => acc + item.totalCost, 0);
     const maxAccountCost = pivotAccountSummary.length > 0 ? Math.max(...pivotAccountSummary.map(a => a.totalCost), 0.01) : 1;
 
-    // 2. Agrupar consumo por Payer Account Id (de mayor a menor)
     const payerSummaryMap = new Map<string, { payerId: string; linkedAccounts: Set<string>; totalCost: number }>();
     sortedDetailRows.forEach(row => {
       const rawPayer = String(row['bill_payer_account_id'] ?? '').trim() || 'Sin Payer ID';
@@ -676,7 +1329,6 @@ export default function App() {
       }))
       .sort((a, b) => b.totalCost - a.totalCost);
 
-    // 3. Agrupar consumo por Product_Name (de mayor a menor)
     const productSummaryMap = new Map<string, number>();
     sortedDetailRows.forEach(row => {
       const prodName = String(row['Product_Name'] ?? '').trim() || 'Sin Product Name';
@@ -724,7 +1376,6 @@ export default function App() {
 
     const totalPieSum = pieSlices.reduce((acc, s) => acc + s.totalCost, 0) || 1;
 
-    // SHEET 1: Detalle_CUR
     const detailColsXml = exportCols
       .map((col, idx) => {
         const cNum = idx + 1;
@@ -813,7 +1464,6 @@ export default function App() {
   <autoFilter ref="A1:${lastColLetter}${lastDetailRow}"/>
 </worksheet>`;
 
-    // SHEET 2: Resumen_y_Graficos
     const sheet2Rows: string[] = [];
     const sheet2Merges: string[] = [];
 
@@ -837,7 +1487,6 @@ export default function App() {
     );
     sheet2Merges.push(`<mergeCell ref="A2:O2"/>`);
 
-    // SECCIÓN 1: TABLA DINÁMICA DE CONSUMO POR CUENTA
     sheet2Rows.push(
       `<row r="4" ht="22" customHeight="1">${Array.from({ length: 5 }, (_, c) =>
         strCell(`${colIndexToLetter(c + 1)}4`, 3, c === 0 ? '1. CONSUMO POR CUENTA ' : '')
@@ -893,7 +1542,6 @@ export default function App() {
         `</row>`
     );
 
-    // SECCIÓN 2: TABLA DINÁMICA DE CONSUMO POR PAYER ACCOUNT ID
     const payerTitleRow = totalPivotRow + 2;
     const payerHeaderRow = payerTitleRow + 1;
     const startPayerRow = payerHeaderRow + 1;
@@ -953,7 +1601,6 @@ export default function App() {
         `</row>`
     );
 
-    // SECCIÓN 3: GRÁFICO DE BARRAS DETALLADO POR CUENTA
     const barTitleRow = totalPayerRow + 2;
     const barHeaderRow = barTitleRow + 1;
     const startBarRow = barHeaderRow + 1;
@@ -1003,7 +1650,6 @@ export default function App() {
       sheet2Merges.push(`<mergeCell ref="A${r}:B${r}"/>`);
     });
 
-    // SECCIÓN 4: CONSUMO POR PRODUCT_NAME + GRÁFICO CIRCULAR
     const pieTitleRow = endBarRow + 2;
     const pieHeaderRow = pieTitleRow + 1;
     const startPieRow = pieHeaderRow + 1;
@@ -1326,7 +1972,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // EXPORTAR CSV
   const exportSelectedCSV = () => {
     if (exportableRows.length === 0 || orderedActiveCols.length === 0) return;
 
@@ -1385,7 +2030,6 @@ export default function App() {
     };
   }, [filteredRows]);
 
-  // TABLA 1: DATOS DE CLIENTES / CUENTAS MAPEADAS
   const tablaClientes = useMemo(() => {
     const accMap: Record<string, number> = {};
     filteredRows.forEach(row => {
@@ -1410,7 +2054,6 @@ export default function App() {
       .sort((a, b) => b.cost - a.cost);
   }, [filteredRows, accountMappings, clienteNombre]);
 
-  // TABLA 2: DATOS DE SERVICIOS Y PRODUCTOS
   const tablaServiciosProductos = useMemo(() => {
     const spMap: Record<string, { service: string; product: string; cost: number }> = {};
     filteredRows.forEach(row => {
@@ -1583,9 +2226,42 @@ export default function App() {
     window.print();
   };
 
-  // ============================================================================
-  // HELPER PARA RENDERIZAR GRÁFICO CIRCULAR (DONUT) SVG NATIVO DE ALTA NITIDEZ EN PDF
-  // ============================================================================
+  const handleDownloadWord = async () => {
+    setIsGeneratingWord(true);
+    try {
+      await generateAndDownloadWordReport({
+        clienteNombre,
+        clienteRut,
+        codCliente,
+        accountManager,
+        sdm,
+        tipoCambio,
+        fechaTC,
+        periodoInicio,
+        periodoFin,
+        fechaInforme,
+        mesConsumo,
+        totalUSD,
+        totalCLP,
+        ivaUSD,
+        ivaCLP,
+        totalConIvaUSD,
+        totalConIvaCLP,
+        marketplaceSum: metricasWidgets.marketplaceSum,
+        selectedAccountsCount: selectedAccounts.length,
+        totalServicesUsed: finopsAvanzado.totalServicesUsed,
+        effiencyScore: finopsAvanzado.effiencyScore,
+        tablaClientes,
+        tablaServiciosProductos,
+        topDrivers: finopsAvanzado.topDrivers,
+        customCoverDataUrl: customCoverImage,
+        consoleScreenshotDataUrl: consoleScreenshot,
+      });
+    } finally {
+      setIsGeneratingWord(false);
+    }
+  };
+
   const pdfPieSlices = useMemo(() => {
     const palette = ['#CC0000', '#1E293B', '#2563EB', '#059669', '#D97706', '#64748B'];
     const items = finopsAvanzado.topDrivers.slice(0, 5);
@@ -1640,7 +2316,6 @@ export default function App() {
   return (
     <div style={{ backgroundColor: '#0B0F17', color: '#F8FAFC', minHeight: '100vh', padding: '24px', fontFamily: 'Arial, sans-serif' }}>
       
-      {/* REGLAS DE IMPRESIÓN Y ESTILOS DE LA CARÁTULA */}
       <style>{`
         @page {
           size: A4 portrait;
@@ -1650,6 +2325,17 @@ export default function App() {
           body { background-color: #FFFFFF !important; color: #000000 !important; margin: 0; padding: 0; }
           .no-print { display: none !important; }
           .print-area { display: block !important; width: 100% !important; background-color: #FFF !important; color: #000 !important; padding: 0 !important; }
+          .cover-page-hd {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            page-break-after: always;
+            break-after: page;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           .caratula-table { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; color: #000; border: 2px solid #000; break-inside: avoid; page-break-inside: avoid; }
           .caratula-table td, .caratula-table th { border: 1px solid #000 !important; padding: 4px 8px; vertical-align: middle; }
           .data-table-report { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10px; color: #000; border: 1px solid #000; margin-top: 8px; break-inside: avoid; page-break-inside: avoid; }
@@ -1672,6 +2358,22 @@ export default function App() {
           .pdf-chart-box { break-inside: avoid !important; page-break-inside: avoid !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
 
+        .cover-page-hd {
+          width: 100%;
+          max-width: 794px;
+          margin: 0 auto 24px auto;
+          border: 1px solid #2A364F;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+          overflow: hidden;
+          background: #FFFFFF;
+          border-radius: 4px;
+        }
+        .cover-page-hd img {
+          width: 100%;
+          height: auto;
+          display: block;
+          image-rendering: high-quality;
+        }
         .caratula-table { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; color: #000; background-color: #FFF; border: 2px solid #000; }
         .caratula-table td, .caratula-table th { border: 1px solid #000; padding: 5px 8px; vertical-align: middle; }
         .data-table-report { width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; color: #000; background-color: #FFF; border: 1px solid #000; margin-top: 8px; }
@@ -1954,7 +2656,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* PANEL DE PERSONALIZACIÓN Y EXPORTACIÓN */}
           <div style={{ backgroundColor: '#121824', padding: '16px', borderRadius: '10px', border: '1px solid #2A364F', marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -2049,7 +2750,6 @@ export default function App() {
             )}
           </div>
 
-          {/* TABLA DE DATOS CON LAS 6 COLUMNAS PRINCIPALES SIEMPRE FIJAS AL INICIO Y CON FILTRO */}
           <div style={{ backgroundColor: '#121824', borderRadius: '8px', border: '1px solid #2A364F', overflowX: 'auto', padding: '16px' }}>
             {selectedAccounts.length === 0 && dataRows.length > 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', color: '#FBBF24', fontSize: '13px' }}>
@@ -2277,15 +2977,45 @@ export default function App() {
         </div>
       )}
 
-      {/* TAB 4: REPORTE COMPLETO AIO (OPTIMIZADO PARA IMPRESIÓN PDF LIMPIA SIN CORTES DE TABLAS) */}
+      {/* TAB 4: REPORTE COMPLETO AIO (PORTADA ULTRA HD 300 DPI + WORD + PDF LIMPIO) */}
       {activeTab === 'reporte_completo' && (
         <div>
           <div className="no-print" style={{ backgroundColor: '#121824', padding: '20px', borderRadius: '10px', border: '1px solid #2A364F', marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', color: '#FFF' }}>📝 Editar Datos de la Carátula de Consumo</h3>
-              <button onClick={handlePrintPDF} style={{ backgroundColor: TIVIT_RED, color: '#FFF', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
-                🖨️ Imprimir / Exportar PDF
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', color: '#FFF' }}>📝 Editar Datos de la Portada y Carátula de Consumo</h3>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleDownloadWord}
+                  disabled={isGeneratingWord}
+                  style={{
+                    backgroundColor: isGeneratingWord ? '#64748B' : '#1D4ED8',
+                    color: '#FFF',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    cursor: isGeneratingWord ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '12px',
+                  }}
+                >
+                  {isGeneratingWord ? '⏳ Generando Word HD...' : '📘 Descargar Word (.docx) HD'}
+                </button>
+                <button
+                  onClick={handlePrintPDF}
+                  style={{
+                    backgroundColor: TIVIT_RED,
+                    color: '#FFF',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '12px',
+                  }}
+                >
+                  🖨️ Imprimir / Exportar PDF
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
@@ -2334,6 +3064,10 @@ export default function App() {
                 <input type="text" value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} style={{ width: '100%', backgroundColor: '#0B0F17', border: '1px solid #2A364F', color: '#FFF', padding: '6px', borderRadius: '4px', fontSize: '11px' }} />
               </div>
               <div>
+                <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8' }}>Imagen Portada HD (Opcional):</label>
+                <input type="file" accept="image/*" onChange={handleCoverUpload} style={{ width: '100%', fontSize: '10px', color: '#94A3B8' }} />
+              </div>
+              <div>
                 <label style={{ display: 'block', fontSize: '10px', color: '#94A3B8' }}>Captura Consola AWS (Opcional):</label>
                 <input type="file" accept="image/*" onChange={handleImageUpload} style={{ width: '100%', fontSize: '10px', color: '#94A3B8' }} />
               </div>
@@ -2353,9 +3087,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* VISTA OFICIAL DE IMPRESIÓN Y CARÁTULA */}
           <div className="print-area">
-            {/* PÁGINA 1: CARÁTULA OFICIAL DE CONSUMO */}
+            {/* PÁGINA 1: PORTADA CORPORATIVA TIVIT EN ULTRA HD (300 DPI - 2480x3508 px) */}
+            {hdCoverPreviewUrl && (
+              <div className="cover-page-hd avoid-break">
+                <img src={hdCoverPreviewUrl} alt="Portada Corporativa TIVIT HD" />
+              </div>
+            )}
+
+            {/* PÁGINA 2: CARÁTULA OFICIAL DE CONSUMO */}
             <div className="avoid-break">
               <table className="caratula-table">
                 <tbody>
@@ -2511,7 +3251,7 @@ export default function App() {
               </table>
             </div>
 
-            {/* PÁGINA 2: RESÚMENES TABULARES (SIN TIPO DE CARGO Y SIN CORTES ENTRE PÁGINAS) */}
+            {/* PÁGINA 3: RESÚMENES TABULARES */}
             {showResumenesReporte && (
               <div className="page-break" style={{ marginTop: '12px' }}>
                 <div className="avoid-break" style={{ marginBottom: '18px' }}>
@@ -2562,7 +3302,7 @@ export default function App() {
               </div>
             )}
 
-            {/* PÁGINA 3: DIAGNÓSTICO FINOPS (TOP 5 MÁS ALTOS, SIN SPP Y CON GRÁFICOS) */}
+            {/* PÁGINA 4: DIAGNÓSTICO FINOPS */}
             <div
               className="finops-container page-break avoid-break"
               style={{
@@ -2612,7 +3352,6 @@ export default function App() {
               </div>
 
               <div style={{ padding: '16px 20px', color: '#334155', fontSize: '11px', lineHeight: '1.5' }}>
-                {/* KPI CARDS SIN MENCIÓN A SPP */}
                 <div className="avoid-break" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '14px' }}>
                   <div className="badge-finops" style={{ backgroundColor: '#FFFFFF', padding: '10px 12px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
                     <span style={{ fontSize: '9px', textTransform: 'uppercase', color: '#64748B', fontWeight: 700, display: 'block' }}>Gasto Neto Período</span>
@@ -2636,7 +3375,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* RESUMEN DE FACTURACIÓN SIN SPP */}
                 <div className="avoid-break" style={{ backgroundColor: '#FFFFFF', padding: '12px 16px', borderRadius: '6px', border: '1px solid #E2E8F0', marginBottom: '14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
                     <span style={{ color: '#CC0000', fontWeight: 'bold' }}>1.</span>
@@ -2647,7 +3385,6 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* TOP 5 IMPULSORES DE COSTO MÁS ALTOS */}
                 <div className="avoid-break" style={{ backgroundColor: '#FFFFFF', padding: '12px 16px', borderRadius: '6px', border: '1px solid #E2E8F0', marginBottom: '14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
                     <span style={{ color: '#CC0000', fontWeight: 'bold' }}>2.</span>
@@ -2667,7 +3404,6 @@ export default function App() {
                   </ul>
                 </div>
 
-                {/* SECCIÓN 3: GRÁFICOS DE DISTRIBUCIÓN PARA PDF (BARRAS TOP 5 + CIRCULAR PORCENTUAL) */}
                 <div className="pdf-chart-box avoid-break" style={{ backgroundColor: '#FFFFFF', padding: '12px 16px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                     <span style={{ color: '#CC0000', fontWeight: 'bold' }}>3.</span>
@@ -2675,7 +3411,6 @@ export default function App() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '16px', alignItems: 'center' }}>
-                    {/* GRÁFICO DE BARRAS HORIZONTAL TOP 5 */}
                     <div>
                       <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#1E293B', marginBottom: '8px', textTransform: 'uppercase' }}>
                         Ranking Top 5 Servicios (USD)
@@ -2711,7 +3446,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* GRÁFICO CIRCULAR SVG NATIVO CON LEYENDA */}
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: '1px solid #E2E8F0', paddingLeft: '12px' }}>
                       <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#1E293B', marginBottom: '6px', textTransform: 'uppercase' }}>
                         Distribución Porcentual (%)
@@ -2763,7 +3497,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* PÁGINA 4 (OPCIONAL): EVIDENCIA DE CONSOLA */}
+            {/* PÁGINA 5 (OPCIONAL): EVIDENCIA DE CONSOLA */}
             {consoleScreenshot && (
               <div className="page-break avoid-break" style={{ marginTop: '20px' }}>
                 <div className="bold" style={{ fontSize: '11px', marginBottom: '8px', borderBottom: '1px solid #000' }}>
